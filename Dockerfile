@@ -1,29 +1,56 @@
-FROM ubuntu:14.04
-ARG userid
-ARG groupid
-ARG username
+# Use Ubuntu as base image
+FROM ubuntu:20.04
 
-RUN apt-get update && apt-get install -y git-core gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip python openjdk-7-jdk python3
+# Avoid timezone prompt during package configuration
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN curl -o jdk8.tgz https://android.googlesource.com/platform/prebuilts/jdk/jdk8/+archive/master.tar.gz \
- && tar -zxf jdk8.tgz linux-x86 \
- && mv linux-x86 /usr/lib/jvm/java-8-openjdk-amd64 \
- && rm -rf jdk8.tgz
+# Install necessary packages
+RUN apt-get update && apt-get install -y \
+    git-core \
+    gnupg \
+    flex \
+    bison \
+    build-essential \
+    zip \
+    curl \
+    zlib1g-dev \
+    gcc-multilib \
+    g++-multilib \
+    libc6-dev-i386 \
+    lib32ncurses5-dev \
+    x11proto-core-dev \
+    libx11-dev \
+    lib32z-dev \
+    ccache \
+    libgl1-mesa-dev \
+    libxml2-utils \
+    xsltproc \
+    unzip \
+    fontconfig \
+    python3 \
+    python3-distutils \
+    openjdk-8-jdk
 
-RUN curl -o /usr/local/bin/repo https://storage.googleapis.com/git-repo-downloads/repo \
- && echo "974992a8bc1c787979f3eb7702a803b051deddc3cd75726c4de52e09e93b798d  /usr/local/bin/repo" | sha256sum --strict -c - \
- && chmod a+x /usr/local/bin/repo
+# Create a symbolic link for Python
+RUN ln -s /usr/bin/python3 /usr/bin/python
 
-RUN sudo rm -rf /usr/bin/python \
- && sudo ln -s /usr/bin/python3 /usr/bin/python
+# Download the Repo tool and ensure it is executable
+RUN curl https://storage.googleapis.com/git-repo-downloads/repo > /usr/local/bin/repo \
+  && chmod a+x /usr/local/bin/repo
 
-RUN groupadd -g $groupid $username \
- && useradd -m -u $userid -g $groupid $username \
- && echo $username >/root/username \
- && echo "export USER="$username >>/home/$username/.gitconfig
-COPY gitconfig /home/$username/.gitconfig
-RUN chown $userid:$groupid /home/$username/.gitconfig
-ENV HOME=/home/$username
-ENV USER=$username
+# Clean up APT when done
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-ENTRYPOINT chroot --userspec=$(cat /root/username):$(cat /root/username) / /bin/bash -i
+# Setting up the working directory
+RUN mkdir -p /aosp
+WORKDIR /aosp
+
+# Initialize the Repo
+RUN repo init -u https://android.googlesource.com/platform/manifest
+
+# Sync the Repo
+RUN repo sync -j1
+
+# Setup environment and build the code
+CMD source build/envsetup.sh && lunch aosp_x86-eng && make -j$(nproc)
+
